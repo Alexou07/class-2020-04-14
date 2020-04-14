@@ -33,9 +33,16 @@ Here is the [chapter titled "Classification"](https://davidkane9.github.io/PPBDS
 The data has been taken from the National Election Survey. Note that both ideology and party are measured in 7 point scales. `ideology` ranges from Strong liberal (1) to Strong Conservative (7). `party` ranges from Strong Democrat (1) to Strong Republican (7). `income` is measured on a 5 point scale ranging from very poor (1) to very rich (5). You may treat these variables as continuous. `dvote`  is our outcome variable. It is whether (1) or not (0) the person prefers the Democratic candidate for President
 
 
+
 **Prompt:**
 
 Explore the data and see the variables for yourself. See if anything looks strange in the summary.
+
+```{r}
+summary(nes)
+glimpse(nes)
+skim(nes)
+```
 
 Create a scatterplot of our outcome variable `dvote` and a continuous predictor `income`. 
 
@@ -43,26 +50,51 @@ You might notice `geom_point()` doesn't give an intuitive graph since the points
 
 Draw a regression line through this jittered data using `geom_smooth()`.
 
+```{r}
+nes %>%
+  ggplot(aes(income, dvote)) + geom_jitter(alpha = .2, height = .1) +
+  geom_smooth(method = lm, formula = y~x)
+```
+
 Discuss whether a linear regression is appropriate for this. Is there a possibility of model predicting greater than 1 or less than 0 probability for `dvote`?
 
+Not really since it is a binary variable.
 
 # Scene 2
 
 **Prompt:** Let's fit a logistic regression model in which `dvote` is the dependent variable and `gender` and `income` are the independent variables. Do not add an interaction term. Name the model `model_1`. As we’ll see, the syntax for running a logistic regression in R is very similar to that for running a linear regression. In fact, we’ll follow the same basic steps:
 
+
 We first fit the logistic regression model using the `glm(y ~ x1 + x2, family, data)` function and save it as `model_1`.  
 
 We get the regression parameter estimates by applying the `tidy()` function from the broom package to `model_1`. Print the `term`, `estimate`, `conf.low`, and `conf.high` columns.  
 
+```{r}
+model_1 <- nes %>%
+  glm(dvote ~ gender + income, family = binomial, data = .)
+
+model_1 %>%
+  tidy(conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate(coef = estimate/4)
+```
+
 Interpret the `estimate` column for "gendermale" and "income". Use the [divide-by-four rule](https://davidkane9.github.io/PPBDS/13-classification.html#one-categorical-explanatory-variable).
+Being male decreases the probability of voting democrat by ~4%, and for each additional increase in income, the probability of voting democrat decreases by 7%.
+
 
 Provide a Bayesian and a Frequentist interpretation of the confidence intervals for the estimate of the coefficient for `income`.
 
+Bayesian : We are 95% confident that the true coefficients for preferring a democratic candidate based on income lie in the interval.
+Frequentist: If we generate infinitely many of these intervals we would capture the true coefficient for preferring a democratic candidate based on income 95% of the time.
+
 Explain to your non-mathematical boss the relationship between income and preference for the Democratic candidate. Write this out as a sentence. Harder than it seems, isn't it?
+
+The higher someone's income the less likely they are to prefer a democratic candidate.
 
 Optional (very hard!): Interpret the `estimate` for (Intercept). What does it mean? Think back to how we interpreted regression intercepts in the last two weeks. You *might* need to use the `qlogis()` function.
 
-
+Represents the likelihood of someone who is female and with income 0 of voting democrat. It does not have a relevant significance since there are no corresponding 0 income variables on the provided scale.
 
 
 # Scene 3
@@ -71,21 +103,52 @@ Optional (very hard!): Interpret the `estimate` for (Intercept). What does it me
 
 Use `augment()` from the **broom** package to get predictions from our model. You will need to set the `type.predict` and `data` arguments correctly.
 
+```{r}
+
+augment_model_1 <- model_1 %>%
+  augment(type.predict = "response", data = nes)
+augment_model_1
+```
+
 What does the `.fitted` column means?
 
+The fitted column is the predicted likelihood that the corresponding individual votes democrat.
+
+
 Why does `.fitted` have the same value for every male with income = 3? (First, show that this is in fact true. Then explain why?)
-
-
+```{r}
+augment_model_1 %>%
+  filter(gender == "male" & income == 3)
+```
+It's a regression based on gender and income, so it does not take into account any other variables.
 
 # Scene 4
 
 **Prompt:** Let’s use augment to make estimates for a voter with the mean value for income. What would our model estimate for a person with mean income and for both a male and female voter?
 
-Use the `newdata` argument in `augment` on `model_1` to make estimates for new data.
 
+Use the `newdata` argument in `augment` on `model_1` to make estimates for new data.
+```{r}
+new_data <- tibble(
+  income = mean(nes$income),
+  gender = c("male", "female")
+)
+
+prediction <- model_1 %>%
+augment(., newdata = new_data) %>%
+  mutate(conf.low = .fitted - 2*.se.fit,
+         conf.high = .fitted + 2*.se.fit)
+
+prediction
+```
 Use `mutate` to create confidence intervals using `.fitted` and `2 * .se.fit`.
 
 Then use `ggplot` to plot the estimates with their confidence intervals. `geom_errorbar()` is a handy tool for that.
+```{r}
+prediction %>%
+  ggplot() + geom_point(aes(x = gender, y = .fitted)) +
+  geom_errorbar(aes(x = gender, ymin = conf.low, ymax = conf.high))
+```
 
 (Optional!) Is this estimate a could forecast of what such a person would actually do? Probably not! An individual can't vote 0.52. You can only either do 0 or do 1. There is no 0.52 option. This highlights the difference between the endlying (and never observable, even in theory) probability of voting, which is on a 0 to 1 scale, and the actual vote, which is only 0 or 1, never in between. With that as background, what do you predict that these two people will do? How can you get R to show this prediction? 
 
@@ -102,6 +165,13 @@ Then use `ggplot` to plot the estimates with their confidence intervals. `geom_e
 5. Then use `unnest` to have the regression results in output dataframe.
 6. Look at the output dataframe to see if you understand the structure of it.
 7. Save the output as `multiple_reg`
+
+```{r}
+nes %>%
+  rep_sample_n(size = 10, replace = TRUE) %>%
+  nest() %>%
+  mutate(mod = map(data, ))
+```
 
 
 
